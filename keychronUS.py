@@ -3,10 +3,12 @@ import json
 import os
 from scrapy.crawler import CrawlerProcess
 import pandas as pd
+import scraper_helper as sh
 
 CSV_FILE = 'k4US.csv'
 # Set Debug to True to get mails even if No stock
 DEBUG = False
+FULL_SIZE_ONLY = True
 
 
 class KeychronSpider(scrapy.Spider):
@@ -22,10 +24,11 @@ class KeychronSpider(scrapy.Spider):
     }
     name = 'keychron'
     start_urls = [
-        'https://www.keychron.com/products/keychron-k4-wireless-mechanical-keyboard-version-2',
-        'https://www.keychron.com/products/keychron-k2-hot-swappable-wireless-mechanical-keyboard',
-        'https://www.keychron.com/products/keychron-k2-wireless-mechanical-keyboard',
-        'https://www.keychron.com/products/keychron-k8-tenkeyless-wireless-mechanical-keyboard',
+        # 'https://www.keychron.com/products/keychron-k4-wireless-mechanical-keyboard-version-2',
+        # 'https://www.keychron.com/products/keychron-k2-hot-swappable-wireless-mechanical-keyboard',
+        # 'https://www.keychron.com/products/keychron-k2-wireless-mechanical-keyboard',
+        # 'https://www.keychron.com/products/keychron-k8-tenkeyless-wireless-mechanical-keyboard',
+        'https://www.keychron.com/collections/keyboard/products/keychron-k1-wireless-mechanical-keyboard'
 
     ]
 
@@ -36,23 +39,33 @@ class KeychronSpider(scrapy.Spider):
         )
 
         for var in data['offers']:
+            if FULL_SIZE_ONLY:
+                if not '104-key' in var['name']:
+                    continue
             available = True if 'InStock' in var['availability'] else False
-            yield {
+            if not available:
+                continue
+            item = {
                 'name': var['name'],
                 'available': available,
                 'price': var['price'],
                 'url': response.url
             }
+            yield item
 
 
 def get_body_subject():
-    df = pd.read_csv(CSV_FILE)
-    if df["available"].any():
-        subject = "✔ Keychron(US) - Available"
-        body = df[df["available"]].to_html()
-    else:
-        subject = "❌ Keychron(US) - Out of Stock" if DEBUG else None
-        body = df.to_html() if DEBUG else None
+    try:
+        df = pd.read_csv(CSV_FILE)
+        if df["available"].any():
+            subject = "✔ Keychron(US) - Available"
+            body = df[df["available"]].to_html()
+        else:
+            subject = "❌ Keychron(US) - Out of Stock" if DEBUG else None
+            body = df.to_html() if DEBUG else None
+    except:
+        return None, None
+
     return body, subject
 
 
@@ -61,9 +74,9 @@ def send_mail():
     from email.message import EmailMessage
     try:
         msg = EmailMessage()
-        MAIL_USER = os.environ.get('ZMAIL_FROM_USER')
-        MAIL_PASS = os.environ.get('ZMAIL_PWD')
-        MAIL_TO = os.environ.get('ZMAIL_TO_USER')
+        MAIL_USER = 'asdsfsdfs@gmail.com'
+        MAIL_PASS = 'asdsfsdfs'
+        MAIL_TO = 'asdsfsdfs@gmail.com'
         body, subject = get_body_subject()
         if not (body and subject) and not DEBUG:
             print("Nothing in stock, exiting...")
@@ -87,14 +100,8 @@ def send_mail():
 
 
 def main():
-    try:
-        process = CrawlerProcess()
-        process.crawl(KeychronSpider)
-        process.start()
-    except Exception as e:
-        print('Unexpected error\n' + str(e))
-    else:
-        send_mail()
+    sh.run_spider(KeychronSpider)
+    send_mail()
 
 
 if __name__ == '__main__':

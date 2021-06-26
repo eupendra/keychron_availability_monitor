@@ -3,10 +3,15 @@ import json
 import os
 from scrapy.crawler import CrawlerProcess
 import pandas as pd
+import smtplib
+from email.message import EmailMessage
+from urllib.parse import urlparse
 
-CSV_FILE = 'k4India.csv'
+CSV_FILE = 'keychronIndia.csv'
 # Set Debug to True to get mails even if No stock
 DEBUG = False
+
+PRODUCTS_TO_MONITOR = ['k2', 'k1', 'k4']  # partial url match
 
 
 class KeychronIndiaSpider(scrapy.Spider):
@@ -22,13 +27,16 @@ class KeychronIndiaSpider(scrapy.Spider):
     }
     name = 'keychron_india'
     start_urls = [
-        'https://keychron.in/product/keychron-k1-wireless-mechanical-keyboard-version-3',
-        'https://keychron.in/product/keychron-k2-wireless-mechanical-keyboard',
-        'https://keychron.in/product/keychron-k4-wireless-mechanical-keyboard',
-        'https://keychron.in/product/keychron-k6-wireless-mechanical-keyboard'
+        'https://keychron.in/',
     ]
 
     def parse(self, response):
+        links = response.xpath('//li[contains(@class,"menu-item")]//a[contains(@href,"product")]/@href').getall()
+        for link in links:
+            if any(p.lower() in link.lower() for p in PRODUCTS_TO_MONITOR):
+                yield scrapy.Request(link, callback=self.parse_keyboard)
+
+    def parse_keyboard(self, response):
         # inspect_response(response, self)
         raw_data = response.xpath(
             '//form[@class="variations_form cart"]/@data-product_variations'
@@ -39,37 +47,53 @@ class KeychronIndiaSpider(scrapy.Spider):
             switch_option = item["attributes"].get("attribute_pa_switch-option", "")
             keys = item["attributes"].get("attribute_pa_key", "")
             available = item['is_in_stock']
+            if 'rgb' in version:
+                version = 'RGB'
+            elif 'white' in version:
+                version = 'White'
+
+            if 'blue' in switch_option:
+                switch_option = '<span style="color:blue">BLUE</span>'
+            elif 'red' in switch_option:
+                switch_option = '<span style="color:red">RED</span>'
+            elif 'brown' in switch_option:
+                switch_option = '<span style="color:brown">BROWN</span>'
+
             yield {
-                'name': version + switch_option + keys,
+                'Model': urlparse(response.url).path.strip('/').strip('/').split('/')[-1],
+                'Version': version,
+                'Switch': switch_option,
+                'Keys': keys,
                 'available': available,
                 'display_regular_price': item['display_regular_price'],
-                'url': response.url
+                'url': response.url,
+
             }
 
 
 def get_body_subject():
     df = pd.read_csv(CSV_FILE)
-    if df["available"].any():
+
+    if DEBUG:
+        subject = "Keychron(IN) - Status" if DEBUG else None
+        body = df.to_html(escape=False) if DEBUG else None
+    elif df["available"].any():
         subject = "✔ Keychron(IN) - Available"
-        body = df[df["available"]].to_html()
-    else:
-        subject = "❌ Keychron(IN) - Out of Stock" if DEBUG else None
-        body = df.to_html() if DEBUG else None
+        body = df[df["available"]].to_html(escape=False)
     return body, subject
 
 
 def send_mail():
-    import smtplib
-    from email.message import EmailMessage
     try:
-        msg = EmailMessage()
-        MAIL_USER = os.environ.get('ZMAIL_FROM_USER')
-        MAIL_PASS = os.environ.get('ZMAIL_PWD')
-        MAIL_TO = os.environ.get('ZMAIL_TO_USER')
         body, subject = get_body_subject()
         if not (body and subject) and not DEBUG:
             print("Nothing in stock, exiting...")
             return
+        msg = EmailMessage()
+        MAIL_USER = 'asdsfsdfs'
+        MAIL_PASS = 'asdsfsdfs'
+        MAIL_TO = 'asdsfsdfs@gmail.com'
+
         msg["Subject"] = subject
         msg['From'] = MAIL_USER
         msg['To'] = MAIL_TO
